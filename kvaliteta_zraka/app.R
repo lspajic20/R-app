@@ -40,6 +40,7 @@ get_city_data <- function(city, token) {
   return(data$data)
 }
 
+
 # --- UI ---
 ui <- dashboardPage(
   dashboardHeader(
@@ -152,27 +153,53 @@ ui <- dashboardPage(
                   )
                 )
               )
-        
+              
       ),
       # VIZUALIZACIJE
       tabItem(tabName = "vizualizacije",
               fluidRow(
                 box(width = 12, solidHeader = TRUE, status = "primary",
+                    h4("Usporedba parametara kroz vrijeme"),
+                    
                     fluidRow(
-                      column(6, selectInput("viz_country", "Odaberi državu", choices = unique(city_country$Country), selected = "Croatia")),
-                      column(6, uiOutput("viz_city_ui"))
+                      column(4, selectInput("viz_country", "Odaberi državu", 
+                                            choices = unique(city_country$Country), selected = "Croatia")),
+                      column(4, uiOutput("viz_city_ui")),
+                      column(4, uiOutput("time_filter_ui"))
                     ),
-                    br(),
+                    
+                    tags$hr(),
                     fluidRow(
-                      column(12, selectInput("viz_param", "Odaberi parametar", 
-                                             choices = names(viz_data)[!names(viz_data) %in% c("datum", "grad")]))
+                      column(12,
+                             tags$div(
+                               id = "param_ui_container", 
+                               style = "max-height: 300px",
+                               
+                               div(id = "param_1_row",
+                                   fluidRow(
+                                     column(11,
+                                            selectInput("param_1", "Parametar 1", 
+                                                        choices = names(viz_data)[!names(viz_data) %in% c("datum", "grad")], 
+                                                        selected = "pm25")
+                                     ),
+                                     column(1,
+                                            actionButton("remove_param_1", "−", style = "margin-top:25px;")
+                                     )
+                                   )
+                               )
+                             ),
+                             actionButton("add_param", "Dodaj", style= " background-color:#B4C4D9; border-color:#7E94BF; font-weight:bold;",
+                                          style = "margin-top:10px;")
+                      )
                     )
+                    
                 )
               ),
               fluidRow(
-                box(title = "Trend parametra kroz vrijeme", width = 12, solidHeader = TRUE,
-                    plotlyOutput("viz_plot"))
+                box(width = 12, solidHeader = TRUE,
+                    plotlyOutput("multi_param_plot"))
               )
+              
       ),
       
       #PRIKAZ NA KARTI
@@ -188,9 +215,9 @@ ui <- dashboardPage(
       # O APLIKACIJI
       tabItem(tabName = "oaplikaciji",
               h2("Ovdje će biti informacije o aplikaciji...")
+      )
     )
   )
-)
 )
 
 # --- SERVER ---
@@ -265,45 +292,120 @@ server <- function(input, output, session) {
     selectInput("viz_city", "Odaberi grad", choices = cities, selected = cities[1])
   })
   
-  # Filtriranje dataseta
+  
+  #Filtriranje dataseta
   filtered_viz_data <- reactive({
-    req(input$viz_country, input$viz_city, input$viz_param)
+    req(input$viz_country, input$viz_city, input$viz_param, input$selected_year)
     
     df <- viz_data %>%
       filter(grad == input$viz_city) %>%
       select(datum, value = all_of(input$viz_param)) %>%
       mutate(
-        value = as.numeric(value)
+        value = as.numeric(value),
+        year = lubridate::year(datum),
+        month = lubridate::floor_date(datum, "month")
       ) %>%
-      drop_na()
+      filter(year == input$selected_year) %>%
+      group_by(month) %>%
+      summarise(value = mean(value, na.rm = TRUE), .groups = "drop") %>%
+      rename(datum = month)
+    
+    return(df)
   })
   
-  #Generiranje grafa
-  output$viz_plot <- renderPlotly({
-    req(filtered_viz_data(), input$viz_param)
-    df <- filtered_viz_data()
+  
+  #Dropdown za odabir godine za graf
+  output$time_filter_ui <- renderUI({
+    req(viz_data)
+    years <- sort(unique(lubridate::year(viz_data$datum)))
+    selectInput("selected_year", "Odaberi godinu", choices = years)
+  })
+  
+
+  param_inputs <- reactiveVal(c("param_1")) #Pohranjuje ID trenutno aktivnog dropdowna parametara
+  
+  # KLikom na 'dodaj' dodaju se novi dropdown izbornici za odabir max 5 parametara
+  observeEvent(input$add_param, {
+    current_ids <- param_inputs()
     
-    plot_ly(
-      data = df,
-      x = ~datum,
-      y = ~value,
-      type = "scatter",
-      mode = "lines+markers"
-    ) %>%
+    if (length(current_ids) >= 5) return()
+    
+    next_index <- 1
+    while (paste0("param_", next_index) %in% current_ids) {
+      next_index <- next_index + 1
+    }
+    
+    new_id <- paste0("param_", next_index)
+    new_row_id <- paste0(new_id, "_row")
+    
+    insertUI(
+      selector = "#param_ui_container",
+      where = "beforeEnd",
+      ui = tags$div(id = new_row_id,
+                    fluidRow(
+                      column(11,
+                             selectInput(new_id, paste("Parametar", next_index), 
+                                         choices = names(viz_data)[!names(viz_data) %in% c("datum", "grad")])
+                      ),
+                      column(1,
+                             actionButton(paste0("remove_", new_id), "−", style = "margin-top:25px;")
+                      )
+                    )
+      )
+    )
+    
+    param_inputs(c(current_ids, new_id))
+  })
+  
+  # Prati ako je kliknut gumb za uklanjanje i briše UI za taj dropdown
+  observe({
+    lapply(param_inputs(), function(id) {
+      remove_id <- paste0("remove_", id)
+      observeEvent(input[[remove_id]], {
+        removeUI(selector = paste0("#", id, "_row"))
+        param_inputs(setdiff(param_inputs(), id))
+      }, ignoreInit = TRUE)
+    })
+  })
+  
+  # Reaktivni skup podataka koji kombinira odabrane parametre za prikaz
+  filtered_multi_data <- reactive({
+    req(input$viz_city, input$selected_year)
+    
+    selected_params <- unlist(lapply(param_inputs(), function(id) input[[id]]))
+    selected_params <- selected_params[!is.na(selected_params) & selected_params != ""]
+    
+    #PRiprema podataka za prikaz
+    df <- viz_data %>%
+      filter(grad == input$viz_city) %>%
+      mutate(
+        year = lubridate::year(datum),
+        month = lubridate::floor_date(datum, "month")
+      ) %>%
+      filter(year == input$selected_year) %>%
+      select(month, all_of(selected_params)) %>%
+      pivot_longer(-month, names_to = "parameter", values_to = "value") %>%
+      drop_na() %>%
+      group_by(month, parameter) %>%
+      summarise(value = mean(value, na.rm = TRUE), .groups = "drop")
+    
+    return(df)
+  })
+  
+  #Višelinijski grafikon za usporedbu više odabranih parametara
+  output$multi_param_plot <- renderPlotly({
+    req(filtered_multi_data())
+    df <- filtered_multi_data()
+    
+    plot_ly(df, x = ~month, y = ~value, color = ~parameter, type = 'scatter', mode = 'lines+markers') %>%
       layout(
-        title = paste("Trend parametra:", input$viz_param),
-        xaxis = list(
-          title = "Vrijeme",
-          type = "date",
-          tickformat = "%b %Y",
-          tickangle = -45
-        ),
-        yaxis = list(title = input$viz_param)
+        title = "Usporedba parametara kroz vrijeme",
+        xaxis = list(title = "Vrijeme", tickformat = "%b %Y"),
+        yaxis = list(title = "Vrijednost")
       )
   })
   
-  
-  
+
 }
 
 
