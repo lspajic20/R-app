@@ -9,6 +9,7 @@ library(plotly)
 library(zoo)
 library(janitor)
 library(tidyr)
+library(dplyr)
 
 api_key <- "44606ae1c46c6a7a05d05c0be8f154d79d1ee219"
 city_country <- read_excel("gradovi_drzave.xlsx")
@@ -38,5 +39,27 @@ get_city_data <- function(city, token) {
   data <- fromJSON(content(res, "text"), flatten = TRUE)
   if (data$status != "ok") return(NULL)
   return(data$data)
+}
+
+# Pomocna funkcija za city dropdown
+render_city_dropdown <- function(country_input, input_id) {
+  renderUI({
+    req(country_input())
+    cities <- city_country %>%
+      filter(Country == country_input()) %>%
+      pull(City) %>%
+      unique()
+    
+    selectInput(inputId = input_id, label = "Odaberi grad", choices = cities)
+  })
+}
+
+# Pomoćna funkcija za year dropdown
+render_year_dropdown <- function(input_id) {
+  renderUI({
+    req(viz_data)
+    years <- sort(unique(lubridate::year(viz_data$datum)))
+    selectInput(inputId = input_id, label = "Odaberi godinu", choices = years, selected = max(years))
+  })
 }
 

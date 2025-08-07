@@ -12,7 +12,10 @@ ui <- dashboardPage(
     width = 200,
     sidebarMenu(
       menuItem("Informacije", tabName = "informacije", icon=icon("table")),
-      menuItem("Vizualizacije", tabName="vizualizacije", icon = icon("chart-bar")),
+      menuItem("Vizualizacije", tabName="vizualizacije", icon = icon("chart-bar"),
+               menuSubItem("Usporedba parametara", tabName = "usporedba"),
+               menuSubItem("Analiza prosjeka", tabName = "prosjek")
+               ),
       menuItem("Prikaz na karti", tabName = "karta", icon = icon("map")),
       menuItem("Predviđanja", tabName = "predvidjanja", icon = icon("chart-line")),
       menuItem("O aplikaciji", tabName = "oaplikaciji", icon=icon("info-circle"))
@@ -39,7 +42,7 @@ ui <- dashboardPage(
         .skin-blue .main-header .navbar { background-color: #B4C4D9; }
         .aqi-box { padding: 15px; border-radius: 8px; color: white; }
         .aqi-value { font-size: 28px; font-weight: bold; }
-      ")
+        .skin-blue .main-sidebar .sidebar .treeview-menu {background-color: #90acd4 !important;} ")
     ),
     tabItems(
       # INFORMACIJE
@@ -113,7 +116,7 @@ ui <- dashboardPage(
               
       ),
       # VIZUALIZACIJE
-      tabItem(tabName = "vizualizacije",
+      tabItem(tabName = "usporedba",
               fluidRow(
                 box(width = 12, solidHeader = TRUE, status = "primary",
                     h4("Usporedba parametara kroz vrijeme"),
@@ -145,18 +148,33 @@ ui <- dashboardPage(
                                    )
                                )
                              ),
-                             actionButton("add_param", "Dodaj", style= " background-color:#B4C4D9; border-color:#7E94BF; font-weight:bold;",
-                                          style = "margin-top:10px;")
+                             actionButton("add_param", "Dodaj", 
+                                          style = " background-color:#B4C4D9; border-color:#7E94BF; font-weight:bold; margin-top:10px;")
                       )
                     )
-                    
                 )
               ),
               fluidRow(
                 box(width = 12, solidHeader = TRUE,
                     plotlyOutput("multi_param_plot"))
               )
-              
+      ),
+      tabItem(tabName = "prosjek",
+              fluidRow(
+                box(width = 12, solidHeader = TRUE, status = "primary",
+                    h4("Prosječne vrijednosti parametara po mjesecima"),
+                    fluidRow(
+                      column(3, selectInput("avg_country", "Odaberi državu", choices = unique(city_country$Country), selected = "Croatia")),
+                      column(3, uiOutput("avg_city_ui")),
+                      column(3, uiOutput("avg_year_ui"))  
+                    )
+                )
+              ),
+              fluidRow(
+                box(width = 12, solidHeader = TRUE,
+                    plotlyOutput("avg_pollutants_plot"))
+              )
+      
       ),
       
       #PRIKAZ NA KARTI

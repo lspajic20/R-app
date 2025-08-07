@@ -1,3 +1,6 @@
+library(dplyr)
+source("global.R")
+
 # --- SERVER ---
 server <- function(input, output, session) {
   # Prikaz/skrivanje bočne trake s izbornikom
@@ -5,14 +8,16 @@ server <- function(input, output, session) {
     toggleClass(selector="body", class = "sidebar-collapse")
   })
   
-  #Dropdown za izbor grada
-  output$city_ui <- renderUI({
-    req(input$country)
-    cities <- city_country$City[city_country$Country == input$country]
-    selectInput("city", "Odaberi grad", choices = cities,
-                selected = if (input$country == "Croatia") "Zagreb" else cities[1])
-  })
+  # City dropdown
+  output$city_ui <- render_city_dropdown(reactive(input$country), "city")
+  output$viz_city_ui <- render_city_dropdown(reactive(input$viz_country), "viz_city")
+  output$avg_city_ui <- render_city_dropdown(reactive(input$avg_country), "avg_city")
   
+  # Year dropdown
+  output$time_filter_ui <- render_year_dropdown("selected_year")
+  output$avg_year_ui <- render_year_dropdown("avg_year")
+  
+  #Učitavanje podataka o gradu nakon što je odabran
   city_data <- reactiveVal(NULL)
   observeEvent(input$city, {
     req(input$city)
@@ -87,18 +92,7 @@ server <- function(input, output, session) {
       group_by(month) %>%
       summarise(value = mean(value, na.rm = TRUE), .groups = "drop") %>%
       rename(datum = month)
-    
-    return(df)
   })
-  
-  
-  #Dropdown za odabir godine za graf
-  output$time_filter_ui <- renderUI({
-    req(viz_data)
-    years <- sort(unique(lubridate::year(viz_data$datum)))
-    selectInput("selected_year", "Odaberi godinu", choices = years)
-  })
-  
   
   param_inputs <- reactiveVal(c("param_1")) #Pohranjuje ID trenutno aktivnog dropdowna parametara
   
@@ -180,6 +174,72 @@ server <- function(input, output, session) {
         title = "Usporedba parametara kroz vrijeme",
         xaxis = list(title = "Vrijeme", tickformat = "%b %Y"),
         yaxis = list(title = "Vrijednost")
+      )
+  })
+  
+  output$avg_city_ui <- renderUI({
+    req(input$avg_country)
+    cities <- city_country %>%
+      filter(Country == input$avg_country) %>%
+      pull(City) %>%
+      unique()
+    
+    selectInput("avg_city", "Odaberi grad", choices = cities)
+  })
+  
+  filtered_avg_data <- reactive({
+    req(input$avg_city, input$avg_year)
+    
+    viz_data %>%
+      filter(grad == input$avg_city) %>%
+      mutate(
+        year = lubridate::year(datum),
+        month = lubridate::floor_date(datum, "month")
+      ) %>%
+      filter(year == input$avg_year) %>%
+      group_by(month) %>%
+      summarise(avg_value = mean(.data[[input$avg_parameter]], na.rm = TRUE), .groups = "drop")
+  })
+  
+  output$avg_year_ui <- renderUI({
+    req(viz_data)
+    years <- sort(unique(lubridate::year(viz_data$datum)))
+    selectInput("avg_year", "Odaberi godinu", choices = years, selected = max(years))
+  })
+  
+  # Novi reaktivni skup za prosjeke svih parametara
+  avg_pollutants_data <- reactive({
+    req(input$avg_city, input$avg_year)
+    
+    df <- viz_data %>%
+      filter(grad == input$avg_city) %>%
+      mutate(year = lubridate::year(datum)) %>%
+      filter(year == input$avg_year)
+    
+    param_cols <- c("pm25", "pm10", "no2", "o3", "so2", "co")
+    
+    summary_df <- df %>%
+      summarise(across(all_of(param_cols), ~mean(.x, na.rm = TRUE))) %>%
+      pivot_longer(cols = everything(), names_to = "parameter", values_to = "avg_value") %>%
+      arrange(desc(avg_value))
+    
+    return(summary_df)
+  })
+  
+  # Graf horizontal bar chart za sve parametre
+  output$avg_pollutants_plot <- renderPlotly({
+    df <- avg_pollutants_data()
+    
+    plot_ly(df, 
+            x = ~avg_value, 
+            y = ~reorder(parameter, avg_value),
+            type = 'bar',
+            orientation = 'h',
+            marker = list(color = '#5F85A0')) %>%
+      layout(
+        title = paste("Top onečišćivači za", input$avg_city, "-", input$avg_year),
+        xaxis = list(title = "Prosječna vrijednost"),
+        yaxis = list(title = "Parametar")
       )
   })
   
