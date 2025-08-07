@@ -14,23 +14,11 @@ api_key <- "44606ae1c46c6a7a05d05c0be8f154d79d1ee219"
 city_country <- read_excel("gradovi_drzave.xlsx")
 
 
-
-
-viz_data <- read_excel("podaciv1.xlsx") %>%
+viz_data <- read_excel("podaciv2.xlsx") %>%
   janitor::clean_names()
 
-# Provjeri naziv kolone
-print(names(viz_data))  # Ovo će pokazati je li to year_month ili nešto drugo
 
-# Pretvori ispravno ime (najvjerojatnije datum)
-viz_data$datum <- as.yearmon(viz_data$datum, "%d-%m-%Y")
-
-# Grad stupac — pogledaj koji je to
-viz_data$grad <- as.character(viz_data$grad)  # ili grad_17 ako je taj ispravan
-
-
-
-
+viz_data$grad <- as.character(viz_data$grad) 
 
 aqi_color <- function(aqi) {
   if (is.na(aqi)) return("#999999")
@@ -171,11 +159,13 @@ ui <- dashboardPage(
               fluidRow(
                 box(width = 12, solidHeader = TRUE, status = "primary",
                     fluidRow(
-                      selectInput("viz_city", "Odaberi grad", choices = sort(unique(viz_data$grad))),
-                      column(6, selectInput("viz_param", "Odaberi parametar", 
-                                            choices = names(viz_data)[!names(viz_data)%in% c("datum", "grad")]),
-                      verbatimTextOutput("debug_param")
-                      )
+                      column(6, selectInput("viz_country", "Odaberi državu", choices = unique(city_country$Country), selected = "Croatia")),
+                      column(6, uiOutput("viz_city_ui"))
+                    ),
+                    br(),
+                    fluidRow(
+                      column(12, selectInput("viz_param", "Odaberi parametar", 
+                                             choices = names(viz_data)[!names(viz_data) %in% c("datum", "grad")]))
                     )
                 )
               ),
@@ -184,7 +174,6 @@ ui <- dashboardPage(
                     plotlyOutput("viz_plot"))
               )
       ),
-      
       
       #PRIKAZ NA KARTI
       tabItem(tabName = "karta",
@@ -269,57 +258,48 @@ server <- function(input, output, session) {
     datatable(df, rownames = FALSE, options = list(dom = 't', paging = FALSE))
   })
   
+  # Dropdown za državu
+  output$viz_city_ui <- renderUI({
+    req(input$viz_country)
+    cities <- city_country$City[city_country$Country == input$viz_country]
+    selectInput("viz_city", "Odaberi grad", choices = cities, selected = cities[1])
+  })
   
-  
-  
-  
-  
-  
-  # Reactive: filtered dataset
+  # Filtriranje dataseta
   filtered_viz_data <- reactive({
-    req(input$viz_city, input$viz_param)
+    req(input$viz_country, input$viz_city, input$viz_param)
     
-    viz_data %>%
+    df <- viz_data %>%
       filter(grad == input$viz_city) %>%
       select(datum, value = all_of(input$viz_param)) %>%
+      mutate(
+        value = as.numeric(value)
+      ) %>%
       drop_na()
   })
   
-  
-  
-  
-  # Render plot
-  
-  observe({
-    cat("Selected city:", input$viz_city, "\n")
-    cat("Selected parameter:", input$viz_parameter, "\n")
-    print(head(filtered_viz_data()))
-  })
-  
-  
+  #Generiranje grafa
   output$viz_plot <- renderPlotly({
     req(filtered_viz_data(), input$viz_param)
-    
     df <- filtered_viz_data()
     
     plot_ly(
       data = df,
       x = ~datum,
-      y = ~value,  # we've already renamed it to 'value'
+      y = ~value,
       type = "scatter",
       mode = "lines+markers"
     ) %>%
       layout(
         title = paste("Trend parametra:", input$viz_param),
-        xaxis = list(title = "Vrijeme"),
+        xaxis = list(
+          title = "Vrijeme",
+          type = "date",
+          tickformat = "%b %Y",
+          tickangle = -45
+        ),
         yaxis = list(title = input$viz_param)
       )
-  })
-  
-  
-  
-  output$debug_param <- renderPrint({
-    input$viz_param
   })
   
   
