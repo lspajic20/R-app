@@ -243,5 +243,32 @@ server <- function(input, output, session) {
       )
   })
   
+  # Dropdown za gradove - sezonski prikaz
+  output$season_city_ui <- render_city_dropdown(reactive(input$season_country), "season_city")
+  
+  # Priprema podataka za sezonski prikaz
+  seasonal_data <- reactive({
+    req(input$season_city, input$season_param)
+    
+    viz_data %>%
+      filter(grad == input$season_city) %>%
+      mutate(month = lubridate::month(datum, label = TRUE, abbr = TRUE)) %>%
+      group_by(month) %>%
+      summarise(avg_value = mean(.data[[input$season_param]], na.rm = TRUE), .groups = "drop")
+  })
+  
+  # Graz za sezonski prikaz
+  output$seasonal_plot <- renderPlotly({
+    df <- seasonal_data()
+    
+    plot_ly(df, x = ~month, y = ~avg_value, type = 'scatter', mode = 'lines+markers',
+            line = list(color = "#7E94BF", width = 3),
+            marker = list(size = 8, color = "#7E94BF")) %>%
+      layout(
+        title = paste("Sezonski profil -", input$season_city, "-", input$season_param),
+        xaxis = list(title = "Mjesec"),
+        yaxis = list(title = "Prosječna vrijednost")
+      )
+  })
   
 }

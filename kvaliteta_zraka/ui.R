@@ -14,7 +14,10 @@ ui <- dashboardPage(
       menuItem("Informacije", tabName = "informacije", icon=icon("table")),
       menuItem("Vizualizacije", tabName="vizualizacije", icon = icon("chart-bar"),
                menuSubItem("Usporedba parametara", tabName = "usporedba"),
-               menuSubItem("Analiza prosjeka", tabName = "prosjek")
+               menuSubItem("Analiza onečišćivača", tabName = "prosjek"),
+               menuSubItem("Sezonski prikaz", tabName = "sezonski"),
+               menuSubItem("Godišnji trend", tabName = "godisnji"),
+               menuSubItem("Matrica korelacija", tabName = "korelacija")
                ),
       menuItem("Prikaz na karti", tabName = "karta", icon = icon("map")),
       menuItem("Predviđanja", tabName = "predvidjanja", icon = icon("chart-line")),
@@ -176,7 +179,46 @@ ui <- dashboardPage(
               )
       
       ),
+      tabItem(tabName = "sezonski",
+              fluidRow(
+                box(width = 12, solidHeader = TRUE, status = "primary",
+                    h4("Sezonski prikaz parametra"),
+                    fluidRow(
+                      column(4, selectInput("season_country", "Odaberi državu",
+                                            choices = unique(city_country$Country),
+                                            selected = "Croatia")),
+                      column(4, uiOutput("season_city_ui")),
+                      column(4, selectInput("season_param", "Odaberi parametar",
+                                            choices = names(viz_data)[!names(viz_data) %in% c("datum", "grad")],
+                                            selected = "pm25"))
+                    ),
+                    plotlyOutput("seasonal_plot", height = "500px")
+                )
+              )
+      ),
       
+      tabItem(tabName = "godisnji",
+              fluidRow(
+                box(width = 12, title = "Usporedba po godinama",
+                    uiOutput("trend_country_ui"),
+                    uiOutput("trend_city_ui"),
+                    uiOutput("trend_param_ui"),
+                    plotlyOutput("year_trend_plot")
+                )
+              )
+      ),
+      
+      tabItem(tabName = "korelacija",
+              fluidRow(
+                box(width = 12, title = "Povezanost parametara",
+                    uiOutput("corr_country_ui"),
+                    uiOutput("corr_city_ui"),
+                    uiOutput("corr_year_ui"),
+                    plotlyOutput("corr_heatmap_plot")
+                )
+              )
+      
+    ),
       #PRIKAZ NA KARTI
       tabItem(tabName = "karta",
               h2("Ovdje će biti prikaz na karti...")
