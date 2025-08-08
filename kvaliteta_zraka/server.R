@@ -68,14 +68,6 @@ server <- function(input, output, session) {
     datatable(df, rownames = FALSE, options = list(dom = 't', paging = FALSE))
   })
   
-  # Dropdown za državu
-  output$viz_city_ui <- renderUI({
-    req(input$viz_country)
-    cities <- city_country$City[city_country$Country == input$viz_country]
-    selectInput("viz_city", "Odaberi grad", choices = cities, selected = cities[1])
-  })
-  
-  
   #Filtriranje dataseta
   filtered_viz_data <- reactive({
     req(input$viz_country, input$viz_city, input$viz_param, input$selected_year)
@@ -257,7 +249,7 @@ server <- function(input, output, session) {
       summarise(avg_value = mean(.data[[input$season_param]], na.rm = TRUE), .groups = "drop")
   })
   
-  # Graz za sezonski prikaz
+  # Graf za sezonski prikaz
   output$seasonal_plot <- renderPlotly({
     df <- seasonal_data()
     
@@ -270,5 +262,82 @@ server <- function(input, output, session) {
         yaxis = list(title = "Prosječna vrijednost")
       )
   })
+  
+  # City dropdown za godišnji trend
+  output$year_trend_city_ui <- render_city_dropdown(reactive(input$year_trend_country), "year_trend_city")
+  
+  # Godišnji prosjeci za odabrani parametar
+  year_trend_data <- reactive({
+    req(input$year_trend_city, input$year_trend_parameter)
+    
+    viz_data %>%
+      dplyr::filter(grad == input$year_trend_city) %>%
+      dplyr::mutate(year = lubridate::year(datum)) %>%
+      dplyr::filter(!is.na(.data[[input$year_trend_parameter]])) %>%
+      dplyr::group_by(year) %>%
+      dplyr::summarise(avg_value = mean(.data[[input$year_trend_parameter]], na.rm = TRUE),
+                       .groups = "drop") %>%
+      dplyr::arrange(year)
+  })
+  
+  
+  # Grf za godišnji prikaz
+  output$year_trend_plot <- renderPlotly({
+    df <- year_trend_data()
+    
+    # Ako ne postoje podaci il imaju za mnje od 2 god
+    if (is.null(df) || !is.data.frame(df) || nrow(df) < 2) {
+      return(
+        plotly::plotly_empty(type = "scatter", mode = "lines") %>%
+          layout(
+            title = list(text = "Nema dostupnih podataka za odabrane postavke"),
+            xaxis = list(visible = FALSE),
+            yaxis = list(visible = FALSE)
+          )
+      )
+    }
+    
+    df$year <- as.integer(df$year)
+    
+    # Prilagođavanje linearne linije trenda
+    fit <- lm(avg_value ~ year, data = df)
+    slope <- unname(coef(fit)[["year"]])
+    
+    #Računanje postotne promjene rijekom razdovblja
+    pct_change <- 100 *
+      (predict(fit, data.frame(year = max(df$year))) -
+         predict(fit, data.frame(year = min(df$year)))) /
+      mean(df$avg_value, na.rm = TRUE)
+    
+    subtitle <- sprintf("Trend: %.2f / god (%.1f%% kroz raspon)", slope, pct_change)
+    
+    #Generiranje točaka za liniju trenda
+    xgrid <- seq(min(df$year), max(df$year), by = 1)
+    yhat  <- predict(fit, newdata = data.frame(year = xgrid))
+    
+    # Kreiranje grafa
+    p <- plot_ly(df, x = ~year, y = ~avg_value,
+                 type = "scatter", mode = "lines+markers",
+                 name = "Godišnji prosjek",
+                 line = list(color = "#1f77b4"))
+    
+    # dodavanje linije trenda
+    p <- add_trace(p, x = xgrid, y = yhat, type = "scatter", mode = "lines",
+                   name = "Trend", line = list(color = "#ff7f0e", dash = "dash"))
+    
+    #Izgled grafa
+    p %>% layout(
+      title = list(
+        text = paste0(
+          "Godišnji trend – ", input$year_trend_city, " – ", toupper(input$year_trend_parameter),
+          "<br><sup>", subtitle, "</sup>"
+        )
+      ),
+      xaxis = list(title = "Godina", tickmode = "linear", dtick = 1, tickformat = "d"),
+      yaxis = list(title = "Prosječna vrijednost"),
+      hovermode = "x unified"
+    )
+  })
+  
   
 }
