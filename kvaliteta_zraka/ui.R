@@ -199,15 +199,21 @@ ui <- dashboardPage(
       
       tabItem(tabName = "godisnji",
               fluidRow(
-                box(width = 12, title = "Usporedba po godinama",
-                    uiOutput("trend_country_ui"),
-                    uiOutput("trend_city_ui"),
-                    uiOutput("trend_param_ui"),
-                    plotlyOutput("year_trend_plot")
+                box(width = 12, solidHeader = TRUE, status = "primary",
+                    h4("Godišnji trend (prosjek po godinama)"),
+                    fluidRow(
+                      column(4, selectInput("year_trend_country", "Odaberi državu",
+                                            choices = unique(city_country$Country), selected = "Croatia")),
+                      column(4, uiOutput("year_trend_city_ui")),
+                      column(4, selectInput("year_trend_parameter", "Odaberi parametar",
+                                            choices = names(viz_data)[!names(viz_data) %in% c("datum", "grad")],
+                                            selected = "pm25"))
+                    ),
+                    plotlyOutput("year_trend_plot", height = "450px")
                 )
               )
       ),
-      
+
       tabItem(tabName = "korelacija",
               fluidRow(
                 box(width = 12, title = "Povezanost parametara",
