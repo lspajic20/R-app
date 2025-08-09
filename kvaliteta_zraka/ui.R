@@ -1,3 +1,6 @@
+library(leaflet)
+
+
 # --- UI ---
 ui <- dashboardPage(
   dashboardHeader(
@@ -228,10 +231,25 @@ ui <- dashboardPage(
       )
       ,
       #PRIKAZ NA KARTI
-      tabItem(tabName = "karta",
-              h2("Ovdje će biti prikaz na karti...")
+      tabItem(
+        tabName = "karta",
+        fluidRow(
+          box(width = 12, solidHeader = TRUE, status = "primary",
+              h4("Prikaz na karti"),
+              fluidRow(
+                column(4, selectInput("map_country", "Odaberi državu",
+                                      choices = sort(unique(city_country$Country)),
+                                      selected = "Croatia")),
+                column(3, actionButton("map_refresh", "Osvježi", class = "btn-primary",
+                                       style = "margin-top: 25px;"))
+              )
+          )
+        ),
+        fluidRow(
+          box(width = 12, solidHeader = TRUE,
+              leafletOutput("aqi_map", height = 550))
+        )
       ),
-      
       #PREDVIĐANJA
       tabItem(tabName = "predvidjanja",
               h2("Ovdje će biti predviđanja...")
