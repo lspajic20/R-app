@@ -14,8 +14,11 @@ ui <- dashboardPage(
       menuItem("Informacije", tabName = "informacije", icon=icon("table")),
       menuItem("Vizualizacije", tabName="vizualizacije", icon = icon("chart-bar"),
                menuSubItem("Usporedba parametara", tabName = "usporedba"),
-               menuSubItem("Analiza prosjeka", tabName = "prosjek")
-               ),
+               menuSubItem("Analiza onečišćivača", tabName = "prosjek"),
+               menuSubItem("Sezonski prikaz", tabName = "sezonski"),
+               menuSubItem("Godišnji trend", tabName = "godisnji"),
+               menuSubItem("Matrica korelacija", tabName = "korelacija")
+      ),
       menuItem("Prikaz na karti", tabName = "karta", icon = icon("map")),
       menuItem("Predviđanja", tabName = "predvidjanja", icon = icon("chart-line")),
       menuItem("O aplikaciji", tabName = "oaplikaciji", icon=icon("info-circle"))
@@ -174,9 +177,56 @@ ui <- dashboardPage(
                 box(width = 12, solidHeader = TRUE,
                     plotlyOutput("avg_pollutants_plot"))
               )
-      
+              
+      ),
+      tabItem(tabName = "sezonski",
+              fluidRow(
+                box(width = 12, solidHeader = TRUE, status = "primary",
+                    h4("Sezonski prikaz parametra"),
+                    fluidRow(
+                      column(4, selectInput("season_country", "Odaberi državu",
+                                            choices = unique(city_country$Country),
+                                            selected = "Croatia")),
+                      column(4, uiOutput("season_city_ui")),
+                      column(4, selectInput("season_param", "Odaberi parametar",
+                                            choices = names(viz_data)[!names(viz_data) %in% c("datum", "grad")],
+                                            selected = "pm25"))
+                    ),
+                    plotlyOutput("seasonal_plot", height = "500px")
+                )
+              )
       ),
       
+      tabItem(tabName = "godisnji",
+              fluidRow(
+                box(width = 12, solidHeader = TRUE, status = "primary",
+                    h4("Godišnji trend (prosjek po godinama)"),
+                    fluidRow(
+                      column(4, selectInput("year_trend_country", "Odaberi državu",
+                                            choices = unique(city_country$Country), selected = "Croatia")),
+                      column(4, uiOutput("year_trend_city_ui")),
+                      column(4, selectInput("year_trend_parameter", "Odaberi parametar",
+                                            choices = names(viz_data)[!names(viz_data) %in% c("datum", "grad")],
+                                            selected = "pm25"))
+                    ),
+                    plotlyOutput("year_trend_plot", height = "450px")
+                )
+              )
+      ),
+      
+      tabItem(tabName = "korelacija",
+              fluidRow(
+                box(width = 3,
+                    selectInput("corr_country", "Odaberi državu", choices = unique(city_country$Country)),
+                    uiOutput("corr_city_ui"),
+                    uiOutput("corr_year_ui")
+                ),
+                box(width = 9,
+                    plotlyOutput("corr_heatmap", height = "600px")
+                )
+              )
+      )
+      ,
       #PRIKAZ NA KARTI
       tabItem(tabName = "karta",
               h2("Ovdje će biti prikaz na karti...")
