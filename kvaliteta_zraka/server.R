@@ -1,5 +1,7 @@
 library(dplyr)
 source("global.R")
+library(leaflet)
+library(memoise)
 
 # --- SERVER ---
 server <- function(input, output, session) {
@@ -524,4 +526,102 @@ server <- function(input, output, session) {
   })
   
   
+
+  # --- KARTA ---
+  
+  # Predmemorija kako se ne bi api pozivao svaki put u manje od 5 min
+  map_cache <- reactiveVal(list(ts = as.POSIXct(0), country = NULL, data = NULL))
+  
+  # Dohvaća trenutne podatke za sve gradove u odabranoj državi
+  fetch_country_aqi <- function(country) {
+    cities <- city_country %>%
+      dplyr::filter(Country == country) %>%
+      dplyr::pull(City) %>%
+      unique()
+    
+    if (length(cities) == 0) return(data.frame())
+    
+    results <- lapply(cities, function(city) {
+      dat <- get_city_data(city, api_key)
+      if (is.null(dat)) return(NULL)
+      
+      data.frame(
+        city = city,
+        aqi  = suppressWarnings(as.numeric(dat$aqi)),
+        dom  = if (!is.null(dat$dominentpol)) dat$dominentpol else NA_character_,
+        lat  = if (!is.null(dat$city$geo[[1]])) dat$city$geo[[1]] else NA_real_,
+        lon  = if (!is.null(dat$city$geo[[2]])) dat$city$geo[[2]] else NA_real_,
+        upd  = if (!is.null(dat$time$s)) dat$time$s else NA_character_,
+        stringsAsFactors = FALSE
+      )
+    })
+    
+    df <- do.call(rbind, results)
+    if (is.null(df)) return(data.frame())
+    df %>% dplyr::filter(!is.na(lat), !is.na(lon), !is.na(aqi))
+  }
+  
+    # Provjera je li predmem manje od 5 min stara i ista zemlja
+    load_map_data <- function(force = FALSE) {
+    cc <- map_cache()
+    fresh <- difftime(Sys.time(), cc$ts, units = "mins") < 5 &&
+      identical(cc$country, input$map_country) &&
+      !is.null(cc$data)
+    
+    if (!force && fresh) return(cc$data)
+    
+    withProgress(message = "Dohvaćam podatke...", value = 0, {
+      df <- fetch_country_aqi(input$map_country)
+    })
+    map_cache(list(ts = Sys.time(), country = input$map_country, data = df))
+    df
+  }
+  
+  # Početni prikaz karte - hrv
+  output$aqi_map <- renderLeaflet({
+    leaflet() %>%
+      addProviderTiles(providers$CartoDB.Positron) %>%
+      setView(lng = 15, lat = 45.5, zoom = 5)
+  })
+  
+  # Ažurira prikaz karte kad se pormijeni država ili klkikne 'osvježi'
+  observeEvent(list(input$map_country, input$map_refresh), {
+    df <- load_map_data(force = TRUE)
+    
+    pal <- colorNumeric(
+      palette = c("#aedcae", "#ffea61", "#ff9100", "#ff4500", "#9f5ea5", "#7e0023"),
+      domain  = c(0, 400), na.color = "#cccccc"
+    )
+    
+    if (nrow(df) == 0) {
+      leafletProxy("aqi_map") %>%
+        clearMarkers() %>%
+        clearControls()
+      return(invisible(NULL))
+    }
+    
+    leafletProxy("aqi_map", data = df) %>%
+      clearMarkers() %>%
+      clearControls() %>%
+      fitBounds(lng1 = min(df$lon), lat1 = min(df$lat),
+                lng2 = max(df$lon), lat2 = max(df$lat)) %>%
+      addCircleMarkers(
+        lng = ~lon, lat = ~lat,
+        radius = ~pmin(18, pmax(6, aqi / 20)),
+        fillColor = ~pal(aqi), fillOpacity = 0.9,
+        color = "#ffffff", weight = 1,
+        popup = ~paste0(
+          "<b>", city, "</b><br>",
+          "AQI: <b>", aqi, "</b><br>",
+          "Dominantni polutant: ", ifelse(is.na(dom), "—", dom), "<br>",
+          "Ažurirano: ", ifelse(is.na(upd), "—", upd)
+        )
+      ) %>%
+      addLegend(
+        "bottomright", pal = pal, values = ~aqi, title = "AQI",
+        labFormat = labelFormat(), opacity = 0.9
+      )
+  }, ignoreInit = FALSE)
+  
 }
+  
