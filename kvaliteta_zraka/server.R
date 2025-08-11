@@ -623,5 +623,131 @@ server <- function(input, output, session) {
       )
   }, ignoreInit = FALSE)
   
+  
+  
+  # --- PREDVIĐANJA---
+  
+  # Dopdown za grad
+  output$fc_city_ui <- render_city_dropdown(reactive(input$fc_country), "fc_city")
+  
+  #Peiprema mjesečnih vremesnkih serija za grad+oneciscivac
+  fc_series <- reactive({
+    req(input$fc_city, input$fc_param)
+    
+    df <- viz_data %>%
+      dplyr::filter(grad == input$fc_city) %>%
+      dplyr::select(datum, value = dplyr::all_of(input$fc_param)) %>%
+      dplyr::mutate(
+        datum = as.Date(datum),
+        value = suppressWarnings(as.numeric(gsub(",", ".", as.character(value))))
+      ) %>%
+      # aggregate to monthly (in case your data isn’t perfectly monthly)
+      dplyr::mutate(month = lubridate::floor_date(datum, "month")) %>%
+      dplyr::group_by(month) %>%
+      dplyr::summarise(value = mean(value, na.rm = TRUE), .groups = "drop") %>%
+      dplyr::arrange(month)
+    
+    # treba imati bar 6 podataka
+    if (nrow(df) < 6) return(NULL)
+    
+    full_idx <- tibble::tibble(month = seq(min(df$month), max(df$month), by = "month"))
+    dfc <- full_idx %>%
+      dplyr::left_join(df, by = "month") %>%
+      dplyr::mutate(value = forecast::na.interp(value)) 
+    
+    y <- ts(dfc$value,
+            start = c(lubridate::year(min(dfc$month)), lubridate::month(min(dfc$month))),
+            frequency = 12)
+    
+    list(y = y, hist = dfc)
+  })
+  
+  # Prilagođavanje i prognoza
+  fc_result <- reactive({
+    req(fc_series(), input$fc_model, input$fc_h)
+    y <- fc_series()$y
+    
+    fit <- switch(input$fc_model,
+                  "arima" = forecast::auto.arima(y),
+                  "snaive" = forecast::snaive(y))
+    
+    f <- forecast::forecast(fit, h = input$fc_h, level = c(80, 95))
+    list(fit = fit, f = f)
+  })
+  
+  # Graf
+  output$fc_plot <- renderPlotly({
+    ser <- fc_series()
+    res <- fc_result()
+    
+    hist_df <- ser$hist
+    f <- res$f
+
+    last_m <- max(hist_df$month)
+    fut_months <- seq(last_m %m+% months(1), by = "month", length.out = length(f$mean))
+    
+    fc_df <- data.frame(
+      month = fut_months,
+      mean  = as.numeric(f$mean),
+      lo80  = as.numeric(f$lower[,"80%"]),
+      hi80  = as.numeric(f$upper[,"80%"]),
+      lo95  = as.numeric(f$lower[,"95%"]),
+      hi95  = as.numeric(f$upper[,"95%"])
+    )
+    
+    p <- plot_ly()
+    
+    p <- add_trace(p, data = hist_df,
+                   x = ~month, y = ~value,
+                   type = "scatter", mode = "lines+markers",
+                   name = "Povijest")
+    
+    # 95% ribbon
+    p <- add_ribbons(p, data = fc_df,
+                     x = ~month, ymin = ~lo95, ymax = ~hi95,
+                     name = "95% interval",
+                     opacity = 0.2, showlegend = TRUE)
+    
+    # 80% ribbon
+    p <- add_ribbons(p, data = fc_df,
+                     x = ~month, ymin = ~lo80, ymax = ~hi80,
+                     name = "80% interval",
+                     opacity = 0.3, showlegend = TRUE)
+    
+    # mean forecast line
+    p <- add_trace(p, data = fc_df,
+                   x = ~month, y = ~mean,
+                   type = "scatter", mode = "lines+markers",
+                   name = "Prognoza", line = list(dash = "dash"))
+    
+    p %>% layout(
+      title = paste("Predviđanje –", input$fc_city, "–", toupper(input$fc_param),
+                    "-", ifelse(input$fc_model == "arima", "Auto ARIMA", "Sezonski naivni")),
+      xaxis = list(title = "Mjesec"),
+      yaxis = list(title = "Vrijednost"),
+      hovermode = "x unified"
+    )
+  })
+  
+  # Tablica sa prognoziranim vrijendostima
+  output$fc_table <- renderDT({
+    res <- fc_result()
+    ser <- fc_series()
+    f <- res$f
+    
+    last_m <- max(ser$hist$month)
+    fut_months <- seq(last_m %m+% months(1), by = "month", length.out = length(f$mean))
+    
+    out <- data.frame(
+      Datum = fut_months,
+      Prognoza = round(as.numeric(f$mean), 2),
+      Lo80 = round(as.numeric(f$lower[,"80%"]), 2),
+      Hi80 = round(as.numeric(f$upper[,"80%"]), 2),
+      Lo95 = round(as.numeric(f$lower[,"95%"]), 2),
+      Hi95 = round(as.numeric(f$upper[,"95%"]), 2)
+    )
+    datatable(out, rownames = FALSE, options = list(pageLength = 10, dom = 'tip'))
+  })
+  
 }
   
