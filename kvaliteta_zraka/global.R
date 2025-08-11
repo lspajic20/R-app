@@ -10,7 +10,8 @@ library(zoo)
 library(janitor)
 library(tidyr)
 library(dplyr)
-
+library(forecast)
+library(lubridate)
 api_key <- "44606ae1c46c6a7a05d05c0be8f154d79d1ee219"
 city_country <- read_excel("gradovi_drzave.xlsx")
 
