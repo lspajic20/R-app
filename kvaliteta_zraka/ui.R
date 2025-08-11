@@ -252,7 +252,35 @@ ui <- dashboardPage(
       ),
       #PREDVIĐANJA
       tabItem(tabName = "predvidjanja",
-              h2("Ovdje će biti predviđanja...")
+              fluidRow(
+                box(width = 12, solidHeader = TRUE, status = "primary",
+                    h4("Predviđanje koncentracije (MVP)"),
+                    fluidRow(
+                      column(3, selectInput("fc_country", "Odaberi državu",
+                                            choices = sort(unique(city_country$Country)),
+                                            selected = "Croatia")),
+                      column(3, uiOutput("fc_city_ui")),
+                      column(3, selectInput("fc_param", "Odaberi parametar",
+                                            choices = c("pm25","pm10","no2","o3","so2","co"),
+                                            selected = "pm25")),
+                      column(3, selectInput("fc_model", "Model",
+                                            choices = c("Auto ARIMA" = "arima",
+                                                        "Sezonski naivni" = "snaive"),
+                                            selected = "arima"))
+                    ),
+                    fluidRow(
+                      column(3, sliderInput("fc_h", "Horizont (mjeseci)", min = 3, max = 18, value = 6, step = 1))
+                    )
+                )
+              ),
+              fluidRow(
+                box(width = 12, solidHeader = TRUE,
+                    plotlyOutput("fc_plot", height = 450))
+              ),
+              fluidRow(
+                box(width = 12, solidHeader = TRUE,
+                    DTOutput("fc_table"))
+              )
       ),
       
       # O APLIKACIJI
