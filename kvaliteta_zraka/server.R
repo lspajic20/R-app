@@ -239,7 +239,7 @@ server <- function(input, output, session) {
   
   # Dropdown za gradove - sezonski prikaz
   output$season_city_ui <- render_city_dropdown(reactive(input$season_country), "season_city")
-
+  
   
   # Priprema podataka za sezonski prikaz
   seasonal_data <- reactive({
@@ -458,7 +458,7 @@ server <- function(input, output, session) {
     if (!length(yrs)) return(tags$p("Nema dostupnih godina za izabrani grad."))
     selectInput("corr_year", "Odaberi godinu", choices = yrs, selected = max(yrs))
   })
-
+  
   #Prioprema podataka za corr matrix
   corr_data <- reactive({
     req(input$corr_city, input$corr_year)
@@ -470,31 +470,31 @@ server <- function(input, output, session) {
     df <- viz_data %>%
       dplyr::filter(grad == input$corr_city,
                     lubridate::year(datum) == input$corr_year) %>%
-    dplyr::select(dplyr::any_of(vars)) %>%
-    dplyr::mutate(dplyr::across(
-      dplyr::everything(),
-      ~ suppressWarnings(as.numeric(gsub(",", ".", as.character(.))))
-    ))
-  
-  if (nrow(df) == 0) return(NULL)
-  
-  # ostavlja one stupce koji nemaju više od 4 nedostajuća podatka 
-  min_n <- 4
-  enough_data <- vapply(df, function(x) sum(!is.na(x)) >= min_n, logical(1))
-  df <- df[, enough_data, drop = FALSE]
-  
-  # ostavlja samo one stupce koji imaju smisla za prikaz korelacija
-  non_zero_var <- vapply(df, function(x) {
-    x <- x[!is.na(x)]
-    length(unique(x)) > 1
-  }, logical(1))
-  df <- df[, non_zero_var, drop = FALSE]
-  
-  if (ncol(df) < 2) return(NULL)
-  
-  df
+      dplyr::select(dplyr::any_of(vars)) %>%
+      dplyr::mutate(dplyr::across(
+        dplyr::everything(),
+        ~ suppressWarnings(as.numeric(gsub(",", ".", as.character(.))))
+      ))
+    
+    if (nrow(df) == 0) return(NULL)
+    
+    # ostavlja one stupce koji nemaju više od 4 nedostajuća podatka 
+    min_n <- 4
+    enough_data <- vapply(df, function(x) sum(!is.na(x)) >= min_n, logical(1))
+    df <- df[, enough_data, drop = FALSE]
+    
+    # ostavlja samo one stupce koji imaju smisla za prikaz korelacija
+    non_zero_var <- vapply(df, function(x) {
+      x <- x[!is.na(x)]
+      length(unique(x)) > 1
+    }, logical(1))
+    df <- df[, non_zero_var, drop = FALSE]
+    
+    if (ncol(df) < 2) return(NULL)
+    
+    df
   })
-
+  
   
   # Matrica korelacija
   output$corr_heatmap <- renderPlotly({
@@ -526,7 +526,7 @@ server <- function(input, output, session) {
   })
   
   
-
+  
   # --- KARTA ---
   
   # Predmemorija kako se ne bi api pozivao svaki put u manje od 5 min
@@ -561,8 +561,8 @@ server <- function(input, output, session) {
     df %>% dplyr::filter(!is.na(lat), !is.na(lon), !is.na(aqi))
   }
   
-    # Provjera je li predmem manje od 5 min stara i ista zemlja
-    load_map_data <- function(force = FALSE) {
+  # Provjera je li predmem manje od 5 min stara i ista zemlja
+  load_map_data <- function(force = FALSE) {
     cc <- map_cache()
     fresh <- difftime(Sys.time(), cc$ts, units = "mins") < 5 &&
       identical(cc$country, input$map_country) &&
@@ -640,93 +640,168 @@ server <- function(input, output, session) {
       dplyr::mutate(
         datum = as.Date(datum),
         value = suppressWarnings(as.numeric(gsub(",", ".", as.character(value))))
-      ) %>%
-      # aggregate to monthly (in case your data isn’t perfectly monthly)
+      )
+    
+    df <- df %>%
       dplyr::mutate(month = lubridate::floor_date(datum, "month")) %>%
       dplyr::group_by(month) %>%
       dplyr::summarise(value = mean(value, na.rm = TRUE), .groups = "drop") %>%
       dplyr::arrange(month)
     
-    # treba imati bar 6 podataka
     if (nrow(df) < 6) return(NULL)
     
     full_idx <- tibble::tibble(month = seq(min(df$month), max(df$month), by = "month"))
-    dfc <- full_idx %>%
-      dplyr::left_join(df, by = "month") %>%
-      dplyr::mutate(value = forecast::na.interp(value)) 
+    dfc <- full_idx %>% dplyr::left_join(df, by = "month")
     
+    opts <- if (is.null(input$fc_opts)) character() else input$fc_opts
+    
+    # outlieri
+    if ("deout" %in% opts) {
+      x <- dfc$value
+      qs <- stats::quantile(x, c(.25, .75), na.rm = TRUE)
+      iqr <- qs[2] - qs[1]
+      lo <- qs[1] - 1.5 * iqr
+      hi <- qs[2] + 1.5 * iqr
+      x[x < lo] <- lo; x[x > hi] <- hi
+      dfc$value <- x
+    }
+    
+    dfc$value <- forecast::na.interp(dfc$value)
+    
+    use_log <- "log" %in% opts
     y <- ts(dfc$value,
             start = c(lubridate::year(min(dfc$month)), lubridate::month(min(dfc$month))),
             frequency = 12)
+    if (use_log) y <- log(pmax(y, .Machine$double.eps))
     
-    list(y = y, hist = dfc)
+    list(y = y, hist = dfc, use_log = use_log)
   })
+  
+  
   
   # Prilagođavanje i prognoza
   fc_result <- reactive({
-    req(fc_series(), input$fc_model, input$fc_h)
-    y <- fc_series()$y
+    req(fc_series(), input$fc_model, input$fc_h, input$fc_level)
+    ser <- fc_series(); y <- ser$y; h <- input$fc_h
+    lvl <- as.numeric(input$fc_level)
+    levels <- sort(unique(c(80, lvl)))
     
-    fit <- switch(input$fc_model,
-                  "arima" = forecast::auto.arima(y),
-                  "snaive" = forecast::snaive(y))
+    # funkcije predviđanja točaka za tsCV (h = 1)
+    pf_arima <- function(y, h) forecast::forecast(forecast::auto.arima(y), h = h)$mean
+    pf_ets   <- function(y, h) forecast::forecast(forecast::ets(y), h = h)$mean
+    pf_sn    <- function(y, h) forecast::snaive(y, h = h)$mean
     
-    f <- forecast::forecast(fit, h = input$fc_h, level = c(80, 95))
-    list(fit = fit, f = f)
+    # potpuno predviđanje za konačni grafikon/tablicu (s intervalima)
+    f_arima <- function(y, h) forecast::forecast(forecast::auto.arima(y), h = h, level = levels)
+    f_ets   <- function(y, h) forecast::forecast(forecast::ets(y), h = h, level = levels)
+    f_sn    <- function(y, h) forecast::snaive(y,h = h, level = levels)
+    
+    # Backtesting
+    metrics <- NULL
+    if (isTRUE(input$fc_compare)) {
+      mae  <- function(e) mean(abs(e), na.rm = TRUE)
+      rmse <- function(e) sqrt(mean(e^2, na.rm = TRUE))
+      
+      safe_tsCV <- function(fun) {
+        tryCatch(forecast::tsCV(y, forecastfunction = function(y, h) fun(y, h), h = 1),
+                 error = function(e) rep(NA_real_, length(y)))
+      }
+      e_arima <- safe_tsCV(pf_arima)
+      e_ets   <- safe_tsCV(pf_ets)
+      e_sn    <- safe_tsCV(pf_sn)
+      
+      metrics <- dplyr::tibble(
+        Model = c("Auto ARIMA", "ETS", "Sezonski naivni"),
+        Key   = c("arima", "ets", "snaive"),
+        MAE   = c(mae(e_arima), mae(e_ets), mae(e_sn)),
+        RMSE  = c(rmse(e_arima), rmse(e_ets), rmse(e_sn))
+      ) %>% dplyr::arrange(MAE)
+    }
+    
+    # Odabir modela
+    selected_key <- input$fc_model
+    if (isTRUE(input$fc_compare) && isTRUE(input$fc_auto) &&
+        !is.null(metrics) && is.data.frame(metrics) && nrow(metrics) > 0 &&
+        "Key" %in% names(metrics)) {
+      selected_key <- metrics$Key[1]
+    }
+    
+    chosen <- switch(selected_key,
+                     "arima"  = f_arima(y, h),
+                     "ets"    = f_ets(y, h),
+                     "snaive" = f_sn(y, h),
+                     f_arima(y, h))  
+    
+    list(f = chosen, levels = levels, metrics = metrics, selected_key = selected_key)
   })
+  
+  
+  
+  output$fc_metrics <- DT::renderDT({
+    res <- fc_result()
+    if (is.null(res$metrics) || !is.data.frame(res$metrics) || nrow(res$metrics) == 0) return(NULL)
+    DT::datatable(res$metrics[, c("Model","MAE","RMSE")], rownames = FALSE,
+                  options = list(dom = 't', paging = FALSE))
+  })
+  
+  
   
   # Graf
   output$fc_plot <- renderPlotly({
-    ser <- fc_series()
-    res <- fc_result()
-    
-    hist_df <- ser$hist
-    f <- res$f
-
+    ser <- fc_series(); res <- fc_result(); req(ser, res)
+    hist_df <- ser$hist; f <- res$f
     last_m <- max(hist_df$month)
     fut_months <- seq(last_m %m+% months(1), by = "month", length.out = length(f$mean))
+    inv <- function(x) if (isTRUE(ser$use_log)) exp(x) else x
     
-    fc_df <- data.frame(
+    cols <- colnames(f$lower)
+    has80 <- "80%" %in% cols
+    mainLvl <- setdiff(cols, "80%")          
+    mainLvl <- if (length(mainLvl)) mainLvl[1] else NULL
+    
+    df <- data.frame(
       month = fut_months,
-      mean  = as.numeric(f$mean),
-      lo80  = as.numeric(f$lower[,"80%"]),
-      hi80  = as.numeric(f$upper[,"80%"]),
-      lo95  = as.numeric(f$lower[,"95%"]),
-      hi95  = as.numeric(f$upper[,"95%"])
+      mean  = inv(as.numeric(f$mean)),
+      lo80  = if (has80) inv(as.numeric(f$lower[, "80%"])) else NA,
+      hi80  = if (has80) inv(as.numeric(f$upper[, "80%"])) else NA,
+      loML  = if (!is.null(mainLvl)) inv(as.numeric(f$lower[, mainLvl])) else NA,
+      hiML  = if (!is.null(mainLvl)) inv(as.numeric(f$upper[, mainLvl])) else NA
     )
     
     p <- plot_ly()
+    p <- add_trace(p, data = hist_df, x = ~month, y = ~value,
+                   type = "scatter", mode = "lines+markers", name = "Povijest")
     
-    p <- add_trace(p, data = hist_df,
-                   x = ~month, y = ~value,
-                   type = "scatter", mode = "lines+markers",
-                   name = "Povijest")
+    if (!is.null(mainLvl)) {
+      p <- add_ribbons(p, data = df, x = ~month, ymin = ~loML, ymax = ~hiML,
+                       name = paste0(mainLvl, " interval"), opacity = 0.25, showlegend = TRUE)
+    }
+    if (has80) {
+      p <- add_ribbons(p, data = df, x = ~month, ymin = ~lo80, ymax = ~hi80,
+                       name = "80% interval", opacity = 0.35, showlegend = TRUE)
+    }
     
-    # 95% ribbon
-    p <- add_ribbons(p, data = fc_df,
-                     x = ~month, ymin = ~lo95, ymax = ~hi95,
-                     name = "95% interval",
-                     opacity = 0.2, showlegend = TRUE)
-    
-    # 80% ribbon
-    p <- add_ribbons(p, data = fc_df,
-                     x = ~month, ymin = ~lo80, ymax = ~hi80,
-                     name = "80% interval",
-                     opacity = 0.3, showlegend = TRUE)
-    
-    # mean forecast line
-    p <- add_trace(p, data = fc_df,
-                   x = ~month, y = ~mean,
+    p <- add_trace(p, data = df, x = ~month, y = ~mean,
                    type = "scatter", mode = "lines+markers",
                    name = "Prognoza", line = list(dash = "dash"))
     
+    ttl_model <- switch(input$fc_model, arima="Auto ARIMA", ets="ETS", snaive="Sezonski naivni")
     p %>% layout(
-      title = paste("Predviđanje –", input$fc_city, "–", toupper(input$fc_param),
-                    "-", ifelse(input$fc_model == "arima", "Auto ARIMA", "Sezonski naivni")),
+      title = paste("Predviđanje –", input$fc_city, "–", toupper(input$fc_param), "–", ttl_model),
       xaxis = list(title = "Mjesec"),
       yaxis = list(title = "Vrijednost"),
       hovermode = "x unified"
     )
+    
+    
+    model_name <- switch(res$selected_key, arima = "Auto ARIMA", ets = "ETS", snaive = "Sezonski naivni")
+    p %>% layout(
+      title = paste("Predviđanje –", input$fc_city, "–", toupper(input$fc_param), "–", model_name),
+      xaxis = list(title = "Mjesec"),
+      yaxis = list(title = "Vrijednost"),
+      hovermode = "x unified"
+    )
+    
   })
   
   # Tablica sa prognoziranim vrijendostima
@@ -750,4 +825,3 @@ server <- function(input, output, session) {
   })
   
 }
-  
