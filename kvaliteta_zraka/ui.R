@@ -265,11 +265,27 @@ ui <- dashboardPage(
                                             selected = "pm25")),
                       column(3, selectInput("fc_model", "Model",
                                             choices = c("Auto ARIMA" = "arima",
+                                                        "ETS" = "ets",
                                                         "Sezonski naivni" = "snaive"),
-                                            selected = "arima"))
+                                            selected = "arima")),
+                      column(3,
+                             checkboxGroupInput(
+                               "fc_opts", "Opcije",
+                               choices = c("Log transform" = "log",
+                                           "Ukloni outliere (IQR)" = "deout"),
+                               selected = NULL
+                             )
+                      ),
+                      column(3,
+                             sliderInput("fc_level", "Interval pouzdanosti (%)",
+                                         min = 50, max = 99, value = 95, step = 1)
+                      )
                     ),
                     fluidRow(
-                      column(3, sliderInput("fc_h", "Horizont (mjeseci)", min = 3, max = 18, value = 6, step = 1))
+                      column(3, sliderInput("fc_h", "Horizont (mjeseci)",
+                                            min = 3, max = 18, value = 6, step = 1)),
+                      column(3, checkboxInput("fc_compare", "Usporedi modele (backtesting)", value = FALSE)),
+                      column(3, checkboxInput("fc_auto", "Automatski odaberi najbolji (MAE)", value = TRUE))
                     )
                 )
               ),
