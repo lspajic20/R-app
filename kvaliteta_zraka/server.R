@@ -254,16 +254,25 @@ server <- function(input, output, session) {
   # Graf za sezonski prikaz
   output$seasonal_plot <- renderPlotly({
     df <- seasonal_data()
-    
-    plot_ly(df, x = ~month, y = ~avg_value, type = 'scatter', mode = 'lines+markers',
-            line = list(color = "#7E94BF", width = 3),
-            marker = list(size = 8, color = "#7E94BF")) %>%
-      layout(
-        title = paste("Sezonski profil -", input$season_city, "-", input$season_param),
-        xaxis = list(title = "Mjesec"),
-        yaxis = list(title = "Prosječna vrijednost")
-      )
+    if (isTRUE(input$season_polar)) {
+      plot_ly(type = "scatterpolar",
+              r = ~df$avg_value,
+              theta = ~as.character(df$month),
+              mode = "lines+markers",
+              hovertemplate = "%{theta}: %{r:.2f}<extra></extra>") %>%
+        layout(title = paste("Sezonski profil –", input$season_city, "-", input$season_param))
+    } else {
+      plot_ly(df, x = ~month, y = ~avg_value, type = 'scatter', mode = 'lines+markers',
+              line = list(width = 3), marker = list(size = 8),
+              hovertemplate = "%{x}: %{y:.2f}<extra></extra>") %>%
+        layout(
+          title = paste("Sezonski profil –", input$season_city, "-", input$season_param),
+          xaxis = list(title = "Mjesec"),
+          yaxis = list(title = "Prosječna vrijednost")
+        )
+    }
   })
+  
   
   # City dropdown za godišnji trend
   output$year_trend_city_ui <- render_city_dropdown(reactive(input$year_trend_country), "year_trend_city")
