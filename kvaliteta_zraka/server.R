@@ -403,28 +403,23 @@ server <- function(input, output, session) {
   
   # Matrica korelacija
   output$corr_heatmap <- renderPlotly({
-    df <- corr_data()
-    if (is.null(df)) {
-      return(plotly::plotly_empty(type = "heatmap") %>%
-               layout(title = "Nema dovoljno podataka"))
-    }
+    df <- corr_data(); req(df)
+    method <- input$corr_method %||% "pearson"
+    corr_mat <- round(stats::cor(df, use = "pairwise.complete.obs", method = method), 2)
     
-    corr_mat <- round(stats::cor(df, use = "pairwise.complete.obs", method = "pearson"), 2)
+    # cluster variables for nicer blocks
+    ord <- hclust(dist(1 - abs(corr_mat)))$order
+    corr_mat <- corr_mat[ord, ord]
     
     plot_ly(
-      x = colnames(corr_mat),
-      y = rownames(corr_mat),
-      z = corr_mat,
+      x = colnames(corr_mat), y = rownames(corr_mat), z = corr_mat,
       type = "heatmap",
       colors = colorRampPalette(c("blue", "white", "red"))(100),
-      reversescale = TRUE,
       zmin = -1, zmax = 1,
-      text = corr_mat,
-      texttemplate = "%{text}",
-      textfont = list(size = 12),
+      text = corr_mat, texttemplate = "%{text}",
       hovertemplate = "<b>%{x}</b> vs <b>%{y}</b><br>Korelacija: %{z}<extra></extra>"
     ) %>% layout(
-      title = paste("Korelacijska matrica –", input$corr_city, "-", input$corr_year),
+      title = paste("Korelacijska matrica –", input$corr_city, "-", input$corr_year, "(", method, ")"),
       xaxis = list(title = "", tickangle = -45),
       yaxis = list(title = "", autorange = "reversed")
     )
