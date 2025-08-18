@@ -227,6 +227,10 @@ ui <- dashboardPage(
                     uiOutput("corr_city_ui"),
                     uiOutput("corr_year_ui")
                 ),
+                radioButtons("corr_method", "Metoda",
+                             choices = c("Pearson" = "pearson", "Spearman" = "spearman"),
+                             selected = "pearson", inline = TRUE),
+                
                 box(width = 9,
                     plotlyOutput("corr_heatmap", height = "600px")
                 )
