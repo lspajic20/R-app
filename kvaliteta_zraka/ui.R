@@ -195,6 +195,9 @@ ui <- dashboardPage(
                                             choices = names(viz_data)[!names(viz_data) %in% c("datum", "grad")],
                                             selected = "pm25"))
                     ),
+                    fluidRow(
+                      column(4, checkboxInput("season_polar", "Polarni prikaz (radar)", FALSE))
+                    ),
                     plotlyOutput("seasonal_plot", height = "500px")
                 )
               )
