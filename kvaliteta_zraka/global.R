@@ -64,3 +64,41 @@ render_year_dropdown <- function(input_id) {
   })
 }
 
+# Pomoćne za RF
+make_rf_df <- function(hist_df, lags = 1:3) {
+  df <- hist_df %>%
+    dplyr::arrange(month) %>%
+    dplyr::mutate(m = lubridate::month(month),
+                  sin12 = sin(2*pi*m/12),
+                  cos12 = cos(2*pi*m/12))
+  for (k in lags) df[[paste0("lag", k)]] <- dplyr::lag(df$value, k)
+  tidyr::drop_na(df)
+}
+
+fit_rf <- function(df) {
+  ranger::ranger(value ~ lag1 + lag2 + lag3 + sin12 + cos12,
+                 data = df, num.trees = 500, mtry = 3, min.node.size = 5, seed = 123)
+}
+
+forecast_rf <- function(fit, hist_df, h = 6) {
+  last_date <- max(hist_df$month)
+  vals <- hist_df$value
+  if (length(vals) < 3) return(numeric(0))
+  lag1 <- tail(vals, 1); lag2 <- tail(vals, 2)[1]; lag3 <- tail(vals, 3)[1]
+  
+  dates <- seq(last_date %m+% months(1), by = "month", length.out = h)
+  preds <- numeric(h)
+  m <- lubridate::month(last_date)
+  
+  for (i in seq_len(h)) {
+    m <- (m %% 12) + 1
+    newx <- data.frame(
+      lag1 = lag1, lag2 = lag2, lag3 = lag3,
+      sin12 = sin(2*pi*m/12), cos12 = cos(2*pi*m/12)
+    )
+    yhat <- predict(fit, data = newx)$predictions
+    preds[i] <- pmax(yhat, 0)
+    lag3 <- lag2; lag2 <- lag1; lag1 <- preds[i]
+  }
+  preds
+}
