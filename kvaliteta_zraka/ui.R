@@ -273,7 +273,8 @@ ui <- dashboardPage(
                       column(3, selectInput("fc_model", "Model",
                                             choices = c("Auto ARIMA" = "arima",
                                                         "ETS" = "ets",
-                                                        "Sezonski naivni" = "snaive"),
+                                                        "Sezonski naivni" = "snaive",
+                                                        "Random Forest (ML)" = "rf"),
                                             selected = "arima")),
                       column(3,
                              checkboxGroupInput(
