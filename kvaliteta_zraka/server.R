@@ -2,6 +2,54 @@ library(dplyr)
 source("global.R")
 library(leaflet)
 library(memoise)
+library(ranger)
+
+# ---- RF helpers (autoregressive, monthly) ----
+make_rf_df <- function(hist_df, lags = 1:3) {
+  # hist_df: columns month (Date), value (numeric)
+  df <- hist_df %>%
+    dplyr::arrange(month) %>%
+    dplyr::mutate(m = lubridate::month(month),
+                  sin12 = sin(2*pi*m/12),
+                  cos12 = cos(2*pi*m/12))
+  for (k in lags) {
+    df[[paste0("lag", k)]] <- dplyr::lag(df$value, k)
+  }
+  tidyr::drop_na(df)
+}
+
+fit_rf <- function(df) {
+  # value ~ lags + seasonality
+  ranger::ranger(value ~ lag1 + lag2 + lag3 + sin12 + cos12,
+                 data = df, num.trees = 500, mtry = 3, min.node.size = 5)
+}
+
+forecast_rf <- function(fit, hist_df, h = 6) {
+  # recursive multi-step forecast using last known lags
+  last_date <- max(hist_df$month)
+  vals <- hist_df$value
+  # initialize lags (need at least 3 points to forecast)
+  if (length(vals) < 3) return(numeric(0))
+  lag1 <- tail(vals, 1); lag2 <- tail(vals, 2)[1]; lag3 <- tail(vals, 3)[1]
+  
+  dates <- seq(last_date %m+% months(1), by = "month", length.out = h)
+  preds <- numeric(h)
+  m <- lubridate::month(last_date)
+  
+  for (i in seq_len(h)) {
+    m <- (m %% 12) + 1
+    newx <- data.frame(
+      lag1 = lag1, lag2 = lag2, lag3 = lag3,
+      sin12 = sin(2*pi*m/12), cos12 = cos(2*pi*m/12)
+    )
+    yhat <- predict(fit, data = newx)$predictions
+    preds[i] <- yhat
+    # roll the lags forward
+    lag3 <- lag2; lag2 <- lag1; lag1 <- yhat
+  }
+  preds
+}
+
 
 # --- SERVER ---
 server <- function(input, output, session) {
@@ -620,6 +668,28 @@ server <- function(input, output, session) {
       selected_key <- metrics$Key[1]
     }
     
+    # RF
+    if (identical(selected_key, "rf")) {
+      ser <- fc_series(); req(ser)
+      hist_df <- ser$hist %>% dplyr::mutate(value = as.numeric(value))
+      rf_df   <- make_rf_df(hist_df)
+      
+      # treba dovoljno podataka za treniranje
+      if (nrow(rf_df) < 12) {
+        validate(need(FALSE, "Premalo podataka za RF model (potrebno ≥ 12 redaka)."))
+      }
+      
+      rf_fit <- fit_rf(rf_df)
+      preds  <- forecast_rf(rf_fit, hist_df, h = input$fc_h)
+      
+      f <- list(
+        mean  = preds,
+        lower = NULL,
+        upper = NULL
+      )
+      return(list(f = f, levels = NA, metrics = metrics, selected_key = "rf"))
+    }
+    
     chosen <- switch(selected_key,
                      "arima"  = f_arima(y, h),
                      "ets"    = f_ets(y, h),
@@ -642,11 +712,11 @@ server <- function(input, output, session) {
     hist_df <- ser$hist; f <- res$f
     last_m <- max(hist_df$month)
     fut_months <- seq(last_m %m+% months(1), by = "month", length.out = length(f$mean))
-    inv <- function(x) if (isTRUE(ser$use_log)) exp(x) else x
+    inv <- function(x) if (isTRUE(ser$use_log) && res$selected_key != "rf") exp(x) else x
     
-    cols <- colnames(f$lower)
+    cols <- if (is.null(f$lower)) character(0) else colnames(f$lower)
     has80 <- "80%" %in% cols
-    mainLvl <- setdiff(cols, "80%")          
+    mainLvl <- setdiff(cols, "80%")
     mainLvl <- if (length(mainLvl)) mainLvl[1] else NULL
     
     df <- data.frame(
@@ -701,13 +771,16 @@ server <- function(input, output, session) {
     last_m <- max(ser$hist$month)
     fut_months <- seq(last_m %m+% months(1), by = "month", length.out = length(f$mean))
     
+    lo80 <- if (!is.null(f$lower) && "80%" %in% colnames(f$lower)) round(as.numeric(f$lower[,"80%"]), 2) else rep(NA_real_, length(f$mean))
+    hi80 <- if (!is.null(f$upper) && "80%" %in% colnames(f$upper)) round(as.numeric(f$upper[,"80%"]), 2) else rep(NA_real_, length(f$mean))
+    lo95 <- if (!is.null(f$lower) && "95%" %in% colnames(f$lower)) round(as.numeric(f$lower[,"95%"]), 2) else rep(NA_real_, length(f$mean))
+    hi95 <- if (!is.null(f$upper) && "95%" %in% colnames(f$upper)) round(as.numeric(f$upper[,"95%"]), 2) else rep(NA_real_, length(f$mean))
+    
     out <- data.frame(
-      Datum = fut_months,
+      Datum    = fut_months,
       Prognoza = round(as.numeric(f$mean), 2),
-      Lo80 = round(as.numeric(f$lower[,"80%"]), 2),
-      Hi80 = round(as.numeric(f$upper[,"80%"]), 2),
-      Lo95 = round(as.numeric(f$lower[,"95%"]), 2),
-      Hi95 = round(as.numeric(f$upper[,"95%"]), 2)
+      Lo80 = lo80, Hi80 = hi80,
+      Lo95 = lo95, Hi95 = hi95
     )
     datatable(out, rownames = FALSE, options = list(pageLength = 10, dom = 'tip'))
   })
