@@ -785,4 +785,25 @@ server <- function(input, output, session) {
     datatable(out, rownames = FALSE, options = list(pageLength = 10, dom = 'tip'))
   })
   
+  
+  # --O APP--
+  
+  # dinamička statistika
+  output$vb_countries <- renderValueBox({
+    n <- length(unique(city_country$Country))
+    valueBox(n, "Država", icon = icon("flag"), color = "light-blue")
+  })
+  output$vb_cities <- renderValueBox({
+    n <- length(unique(city_country$City))
+    valueBox(n, "Gradova", icon = icon("city"), color = "blue")
+  })
+  output$vb_coverage <- renderValueBox({
+    rng <- range(as.Date(viz_data$datum), na.rm = TRUE)
+    lab <- paste(format(rng[1], "%b %Y"), "–", format(rng[2], "%b %Y"))
+    valueBox(lab, "Vremenski raspon", icon = icon("calendar"), color = "teal")
+  })
+  output$vb_rows <- renderValueBox({
+    valueBox(scales::comma(nrow(viz_data)), "Zapisa", icon = icon("database"), color = "aqua")
+  })
+  
 }
