@@ -308,8 +308,49 @@ ui <- dashboardPage(
       ),
       
       # O APLIKACIJI
-      tabItem(tabName = "oaplikaciji",
-              h2("Ovdje će biti informacije o aplikaciji...")
+      tabItem(
+        tabName = "oaplikaciji",
+        fluidRow(
+          valueBoxOutput("vb_countries", width = 3),
+          valueBoxOutput("vb_cities",    width = 3),
+          valueBoxOutput("vb_coverage",  width = 3),
+          valueBoxOutput("vb_rows",      width = 3)
+        ),
+        fluidRow(
+          box(title = "Što je ovo?", width = 12, solidHeader = TRUE, status = "primary",
+              HTML("
+          <p><b>AQ Explorer</b> je interaktivna Shiny aplikacija za pregled i analizu kvalitete zraka.
+          Omogućuje dohvat <i>real-time</i> AQI podataka, pregled povijesnih serija, sezonalnosti,
+          korelacija te prognoziranje koncentracija pomoću klasičnih TS modela (ARIMA/ETS/SNaive)
+          i strojnog učenja (Random Forest).</p>
+        ")
+          )
+        ),
+        fluidRow(
+          box(title = "Izvori podataka", width = 6, solidHeader = TRUE,
+              HTML(paste0(
+                "<ul>",
+                "<li><b>WAQI API</b> – trenutni AQI i dominantni polutant. ",
+                "Više: <a href='https://aqicn.org/api/' target='_blank'>aqicn.org/api</a></li>",
+                "<li><b>Povijesni skup</b> – datoteka <code>podaciv2.xlsx</code> (mjesečni agregati po gradu).</li>",
+                "<li><b>Gradovi/države</b> – <code>gradovi_drzave.xlsx</code>.</li>",
+                "</ul>"
+              ))
+          ),
+          box(title = "Sažetak", width = 6, solidHeader = TRUE,
+              HTML("
+          <ul>
+            <li><b>Informacije</b>: dohvat AQI po gradu; boje prema AQI skali.</li>
+            <li><b>Vizualizacije</b>: mjesečni prosjeci; usporedba više parametara.</li>
+            <li><b>Sezonski prikaz</b>: srednja vrijednost po mjesecima (linijski ili radar).</li>
+            <li><b>Godišnji trend</b>: linearna regresija (s nagibom i % promjenom).</li>
+            <li><b>Korelacije</b>: Pearson ili Spearman na parovima varijabli.</li>
+            <li><b>Prognoze</b>: ARIMA/ETS/SNaive s intervalima; RF (autoregresivni, bez intervala).
+                Opcije: log-transform, uklanjanje outliera (IQR), usporedba modela, auto-odabir po MAE.</li>
+          </ul>
+        ")
+          )
+        )
       )
     )
   )
