@@ -1,0 +1,357 @@
+library(leaflet)
+
+
+# --- UI ---
+ui <- dashboardPage(
+  dashboardHeader(
+    title = tags$a(
+      href = "#",
+      tags$img(src = "logoo.png", height = "40px",
+               style = "margin-top: -10px; cursor:pointer;", id = "logo_click")
+    ),
+    titleWidth = 70
+  ),
+  dashboardSidebar(
+    width = 200,
+    sidebarMenu(
+      menuItem("Informacije", tabName = "informacije", icon=icon("table")),
+      menuItem("Vizualizacije", tabName="vizualizacije", icon = icon("chart-bar"),
+               menuSubItem("Usporedba parametara", tabName = "usporedba"),
+               menuSubItem("Analiza onečišćivača", tabName = "prosjek"),
+               menuSubItem("Sezonski prikaz", tabName = "sezonski"),
+               menuSubItem("Godišnji trend", tabName = "godisnji"),
+               menuSubItem("Matrica korelacija", tabName = "korelacija")
+      ),
+      menuItem("Prikaz na karti", tabName = "karta", icon = icon("map")),
+      menuItem("Predviđanja", tabName = "predvidjanja", icon = icon("chart-line")),
+      menuItem("O aplikaciji", tabName = "oaplikaciji", icon=icon("info-circle"))
+    )
+  ),
+  dashboardBody(
+    useShinyjs(),
+    tags$script(HTML("
+      document.addEventListener('DOMContentLoaded', function() {
+        document.getElementById('logo_click').addEventListener('click', function() {
+          Shiny.setInputValue('logo_click', new Date().getTime());
+        });
+      });
+    ")),
+    tags$head(
+      tags$style("
+        .sidebar-toggle { display: none }
+        .skin-blue .main-header .logo { background-color: #B4C4D9; color: white; font-weight: 700;}
+        .skin-blue .main-header .logo:hover { background-color: #B4C4D9; }
+        .skin-blue .main-sidebar { background-color: #B4C4D9; }
+        .skin-blue .main-sidebar .sidebar a { color: #2D4473; font-weight: 600;}
+        .skin-blue .main-sidebar .sidebar a:hover { background-color: #7E94BF;}
+        .skin-blue .main-sidebar .sidebar-menu > li.active > a { background-color: #7E94BF; color: white; }
+        .skin-blue .main-header .navbar { background-color: #B4C4D9; }
+        .aqi-box { padding: 15px; border-radius: 8px; color: white; }
+        .aqi-value { font-size: 28px; font-weight: bold; }
+        .skin-blue .main-sidebar .sidebar .treeview-menu {background-color: #90acd4 !important;} ")
+    ),
+    tabItems(
+      # INFORMACIJE
+      tabItem(tabName = "informacije",
+              fluidRow(
+                box(width = 12, solidHeader = TRUE, status = "primary",
+                    fluidRow(
+                      column(6, selectInput("country", "Odaberi državu", choices = unique(city_country$Country), selected="Croatia")),
+                      column(6, uiOutput("city_ui"))
+                    )
+                )
+              ),
+              fluidRow(
+                column(
+                  width = 8,
+                  box(title = "Trenutna kvaliteta zraka",
+                      width = 12, solidHeader = TRUE,
+                      uiOutput("city_info"),
+                      style = "text-align:center; font-size:18px; padding:20px;"
+                  )
+                ),
+                column(
+                  width = 4,
+                  box(title = "AQI Legenda",
+                      width = 12, solidHeader = TRUE,
+                      HTML("
+                        <div style='padding:5px;'>
+                          <div style='background-color:#aedcae; padding:5px;'>0–50: Dobro</div>
+                          <div style='background-color:#ffea61; padding:5px;'>51–100: Umjereno</div>
+                          <div style='background-color:#ff9100; padding:5px;'>101–150: Nezdravo za osjetljive</div>
+                          <div style='background-color:#ff4500; padding:5px; color:white;'>151–200: Nezdravo</div>
+                          <div style='background-color:#9f5ea5; padding:5px; color:white;'>201–300: Vrlo nezdravo</div>
+                          <div style='background-color:#7e0023; padding:5px; color:white;'>300+: Opasno</div>
+                        </div>
+                      ")
+                  )
+                )
+              ),
+              fluidRow(
+                column(
+                  width = 6,
+                  box(
+                    title = "Pregled parametara",
+                    width = 12, solidHeader = TRUE, 
+                    DTOutput("pollutants_table")
+                  )
+                ),
+                column(
+                  width = 6,
+                  box(
+                    title = "Objašnjenje parametara koji utječu na kvalitetu zraka",
+                    width = 12,
+                    status = "warning",
+                    div(
+                      style = "padding:10px; font-size:14px; line-height:1.6;",
+                      HTML("
+                        <b>CO</b>: Ugljikov monoksid – bezbojan, otrovan plin koji nastaje izgaranjem.<br>
+                        <b>NO₂</b>: Dušikov dioksid – iritant za dišni sustav, potječe od prometa i industrije.<br>
+                        <b>O₃</b>: Ozon – štetan pri razini tla, povezan s respiratornim problemima.<br>
+                        <b>PM10 / PM2.5</b>: Čestice prašine – sitne čestice koje mogu prodrijeti duboko u pluća.<br>
+                        <b>SO₂</b>: Sumporni dioksid – potječe od sagorijevanja fosilnih goriva.<br>
+                        <b>Dew</b>: Točka rosišta – pokazuje vlagu u zraku.<br>
+                        <b>p</b>: Atmosferski tlak – mjera pritiska zraka.<br>
+                        <b>t</b>: Temperatura zraka.<br>
+                        <b>w</b>: Brzina vjetra.
+                      ")
+                    )
+                  )
+                )
+              )
+              
+      ),
+      # VIZUALIZACIJE
+      tabItem(tabName = "usporedba",
+              fluidRow(
+                box(width = 12, solidHeader = TRUE, status = "primary",
+                    h4("Usporedba parametara kroz vrijeme"),
+                    
+                    fluidRow(
+                      column(4, selectInput("viz_country", "Odaberi državu", 
+                                            choices = unique(city_country$Country), selected = "Croatia")),
+                      column(4, uiOutput("viz_city_ui")),
+                      column(4, uiOutput("time_filter_ui"))
+                    ),
+                    
+                    tags$hr(),
+                    fluidRow(
+                      column(12,
+                             tags$div(
+                               id = "param_ui_container", 
+                               style = "max-height: 300px",
+                               
+                               div(id = "param_1_row",
+                                   fluidRow(
+                                     column(11,
+                                            selectInput("param_1", "Parametar 1", 
+                                                        choices = names(viz_data)[!names(viz_data) %in% c("datum", "grad")], 
+                                                        selected = "pm25")
+                                     ),
+                                     column(1,
+                                            actionButton("remove_param_1", "−", style = "margin-top:25px;")
+                                     )
+                                   )
+                               )
+                             ),
+                             actionButton("add_param", "Dodaj", 
+                                          style = " background-color:#B4C4D9; border-color:#7E94BF; font-weight:bold; margin-top:10px;")
+                      )
+                    )
+                )
+              ),
+              fluidRow(
+                box(width = 12, solidHeader = TRUE,
+                    plotlyOutput("multi_param_plot"))
+              )
+      ),
+      tabItem(tabName = "prosjek",
+              fluidRow(
+                box(width = 12, solidHeader = TRUE, status = "primary",
+                    h4("Prosječne vrijednosti parametara po mjesecima"),
+                    fluidRow(
+                      column(3, selectInput("avg_country", "Odaberi državu", choices = unique(city_country$Country), selected = "Croatia")),
+                      column(3, uiOutput("avg_city_ui")),
+                      column(3, uiOutput("avg_year_ui"))  
+                    )
+                )
+              ),
+              fluidRow(
+                box(width = 12, solidHeader = TRUE,
+                    plotlyOutput("avg_pollutants_plot"))
+              )
+              
+      ),
+      tabItem(tabName = "sezonski",
+              fluidRow(
+                box(width = 12, solidHeader = TRUE, status = "primary",
+                    h4("Sezonski prikaz parametra"),
+                    fluidRow(
+                      column(4, selectInput("season_country", "Odaberi državu",
+                                            choices = unique(city_country$Country),
+                                            selected = "Croatia")),
+                      column(4, uiOutput("season_city_ui")),
+                      column(4, selectInput("season_param", "Odaberi parametar",
+                                            choices = names(viz_data)[!names(viz_data) %in% c("datum", "grad")],
+                                            selected = "pm25"))
+                    ),
+                    fluidRow(
+                      column(4, checkboxInput("season_polar", "Polarni prikaz (radar)", FALSE))
+                    ),
+                    plotlyOutput("seasonal_plot", height = "500px")
+                )
+              )
+      ),
+      
+      tabItem(tabName = "godisnji",
+              fluidRow(
+                box(width = 12, solidHeader = TRUE, status = "primary",
+                    h4("Godišnji trend (prosjek po godinama)"),
+                    fluidRow(
+                      column(4, selectInput("year_trend_country", "Odaberi državu",
+                                            choices = unique(city_country$Country), selected = "Croatia")),
+                      column(4, uiOutput("year_trend_city_ui")),
+                      column(4, selectInput("year_trend_parameter", "Odaberi parametar",
+                                            choices = names(viz_data)[!names(viz_data) %in% c("datum", "grad")],
+                                            selected = "pm25"))
+                    ),
+                    plotlyOutput("year_trend_plot", height = "450px")
+                )
+              )
+      ),
+      
+      tabItem(tabName = "korelacija",
+              fluidRow(
+                box(width = 3,
+                    selectInput("corr_country", "Odaberi državu", choices = unique(city_country$Country)),
+                    uiOutput("corr_city_ui"),
+                    uiOutput("corr_year_ui")
+                ),
+                radioButtons("corr_method", "Metoda",
+                             choices = c("Pearson" = "pearson", "Spearman" = "spearman"),
+                             selected = "pearson", inline = TRUE),
+                
+                box(width = 9,
+                    plotlyOutput("corr_heatmap", height = "600px")
+                )
+              )
+      )
+      ,
+      #PRIKAZ NA KARTI
+      tabItem(
+        tabName = "karta",
+        fluidRow(
+          box(width = 12, solidHeader = TRUE, status = "primary",
+              h4("Prikaz na karti"),
+              fluidRow(
+                column(4, selectInput("map_country", "Odaberi državu",
+                                      choices = sort(unique(city_country$Country)),
+                                      selected = "Croatia")),
+                column(3, actionButton("map_refresh", "Osvježi", class = "btn-primary",
+                                       style = "margin-top: 25px;"))
+              )
+          )
+        ),
+        fluidRow(
+          box(width = 12, solidHeader = TRUE,
+              leafletOutput("aqi_map", height = 550))
+        )
+      ),
+      #PREDVIĐANJA
+      tabItem(tabName = "predvidjanja",
+              fluidRow(
+                box(width = 12, solidHeader = TRUE, status = "primary",
+                    h4("Predviđanje koncentracije (MVP)"),
+                    fluidRow(
+                      column(3, selectInput("fc_country", "Odaberi državu",
+                                            choices = sort(unique(city_country$Country)),
+                                            selected = "Croatia")),
+                      column(3, uiOutput("fc_city_ui")),
+                      column(3, selectInput("fc_param", "Odaberi parametar",
+                                            choices = c("pm25","pm10","no2","o3","so2","co"),
+                                            selected = "pm25")),
+                      column(3, selectInput("fc_model", "Model",
+                                            choices = c("Auto ARIMA" = "arima",
+                                                        "ETS" = "ets",
+                                                        "Sezonski naivni" = "snaive",
+                                                        "Random Forest (ML)" = "rf"),
+                                            selected = "arima")),
+                      column(3,
+                             checkboxGroupInput(
+                               "fc_opts", "Opcije",
+                               choices = c("Log transform" = "log",
+                                           "Ukloni outliere (IQR)" = "deout"),
+                               selected = NULL
+                             )
+                      ),
+                      column(3,
+                             sliderInput("fc_level", "Interval pouzdanosti (%)",
+                                         min = 50, max = 99, value = 95, step = 1)
+                      )
+                    ),
+                    fluidRow(
+                      column(3, sliderInput("fc_h", "Horizont (mjeseci)",
+                                            min = 3, max = 18, value = 6, step = 1)),
+                      column(3, checkboxInput("fc_compare", "Usporedi modele (backtesting)", value = FALSE)),
+                      column(3, checkboxInput("fc_auto", "Automatski odaberi najbolji (MAE)", value = TRUE))
+                    )
+                )
+              ),
+              fluidRow(
+                box(width = 12, solidHeader = TRUE,
+                    plotlyOutput("fc_plot", height = 450))
+              ),
+              fluidRow(
+                box(width = 12, solidHeader = TRUE,
+                    DTOutput("fc_table"))
+              )
+      ),
+      
+      # O APLIKACIJI
+      tabItem(
+        tabName = "oaplikaciji",
+        fluidRow(
+          valueBoxOutput("vb_countries", width = 3),
+          valueBoxOutput("vb_cities",    width = 3),
+          valueBoxOutput("vb_coverage",  width = 3),
+          valueBoxOutput("vb_rows",      width = 3)
+        ),
+        fluidRow(
+          box(title = "Što je ovo?", width = 12, solidHeader = TRUE, status = "primary",
+              HTML("
+          <p><b>AQ Explorer</b> je interaktivna Shiny aplikacija za pregled i analizu kvalitete zraka.
+          Omogućuje dohvat <i>real-time</i> AQI podataka, pregled povijesnih serija, sezonalnosti,
+          korelacija te prognoziranje koncentracija pomoću klasičnih TS modela (ARIMA/ETS/SNaive)
+          i strojnog učenja (Random Forest).</p>
+        ")
+          )
+        ),
+        fluidRow(
+          box(title = "Izvori podataka", width = 6, solidHeader = TRUE,
+              HTML(paste0(
+                "<ul>",
+                "<li><b>WAQI API</b> – trenutni AQI i dominantni polutant. ",
+                "Više: <a href='https://aqicn.org/api/' target='_blank'>aqicn.org/api</a></li>",
+                "<li><b>Povijesni skup</b> – datoteka <code>podaciv2.xlsx</code> (mjesečni agregati po gradu).</li>",
+                "<li><b>Gradovi/države</b> – <code>gradovi_drzave.xlsx</code>.</li>",
+                "</ul>"
+              ))
+          ),
+          box(title = "Sažetak", width = 6, solidHeader = TRUE,
+              HTML("
+          <ul>
+            <li><b>Informacije</b>: dohvat AQI po gradu; boje prema AQI skali.</li>
+            <li><b>Vizualizacije</b>: mjesečni prosjeci; usporedba više parametara.</li>
+            <li><b>Sezonski prikaz</b>: srednja vrijednost po mjesecima (linijski ili radar).</li>
+            <li><b>Godišnji trend</b>: linearna regresija (s nagibom i % promjenom).</li>
+            <li><b>Korelacije</b>: Pearson ili Spearman na parovima varijabli.</li>
+            <li><b>Prognoze</b>: ARIMA/ETS/SNaive s intervalima; RF (autoregresivni, bez intervala).
+                Opcije: log-transform, uklanjanje outliera (IQR), usporedba modela, auto-odabir po MAE.</li>
+          </ul>
+        ")
+          )
+        )
+      )
+    )
+  )
+)
